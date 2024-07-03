@@ -66,6 +66,13 @@
             height: 10px; /* Adjust height as needed */
             position: absolute;
         }
+        .selection-box {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            background-color: rgba(0, 0, 255, 0.3); /* Semi-transparent blue */
+            z-index: 2; /* Above annotation boxes */
+        }
     </style>
 </head>
 <body>
@@ -97,12 +104,12 @@
             <option value="8">Jumping</option>
             <option value="9">Waving</option>
         </select>
-        <button onclick="markKeyFrame()">Mark Key Frame</button>
-        <button onclick="annotateKeyFrames()">Annotate Key Frames</button>
+        <button onclick="annotateRange()">Annotate Range</button>
     </div>
     <div id="annotations">
         <div class="annotation-visualization" id="annotation-visualization">
             <div class="annotation-bar"></div>
+            <div class="selection-box" id="selection-box" style="display: none;"></div>
         </div>
         <ul id="annotation-list"></ul>
     </div>
@@ -112,7 +119,6 @@
         let currentIndex = 0;
         let intervalId = null;
         const annotations = [];
-        const keyFrames = [];
         const actions = [
             'Nothing', 'Rotating', 'Picking up', 'Stretching',
             'Squatting down', 'Standing up', 'Walking', 'Jumping', 'Waving'
@@ -128,6 +134,9 @@
             '#800080', // Purple for Jumping
             '#008000'  // Dark Green for Waving
         ];
+        let selectionStart = null;
+        let selectionEnd = null;
+        let isSelecting = false;
 
         document.getElementById('file-input').addEventListener('change', function(event) {
             const files = event.target.files;
@@ -186,32 +195,52 @@
             }
         }
 
-        function markKeyFrame() {
-            if (!keyFrames.includes(currentIndex)) {
-                keyFrames.push(currentIndex);
-                keyFrames.sort((a, b) => a - b); // Ensure keyFrames are in order
-                updateAnnotationVisualization();
-                updateAnnotationList();
+        function startSelection(e) {
+            const visualizationDiv = document.getElementById('annotation-visualization');
+            const rect = visualizationDiv.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            selectionStart = Math.floor((x / rect.width) * images.length);
+            const selectionBox = document.getElementById('selection-box');
+            selectionBox.style.left = `${x}px`;
+            selectionBox.style.width = '0px';
+            selectionBox.style.display = 'block';
+            isSelecting = true;
+        }
+
+        function updateSelection(e) {
+            if (isSelecting) {
+                const visualizationDiv = document.getElementById('annotation-visualization');
+                const rect = visualizationDiv.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                selectionEnd = Math.floor((x / rect.width) * images.length);
+                const selectionBox = document.getElementById('selection-box');
+                selectionBox.style.width = `${Math.abs(x - parseFloat(selectionBox.style.left))}px`;
+                if (x < parseFloat(selectionBox.style.left)) {
+                    selectionBox.style.left = `${x}px`;
+                }
             }
         }
 
-        function annotateKeyFrames() {
+        function endSelection() {
+            isSelecting = false;
+        }
+
+        function annotateRange() {
             const actionId = parseInt(document.getElementById('action-selector').value);
             const personId = parseInt(document.getElementById('person-selector').value);
-            if (actionId && personId && keyFrames.length > 1) {
-                for (let i = 0; i < keyFrames.length - 1; i++) {
-                    const startFrame = keyFrames[i];
-                    const endFrame = keyFrames[i + 1] - 1;
-                    annotations.push({
-                        personId: personId,
-                        actionId: actionId,
-                        start: startFrame,
-                        end: endFrame
-                    });
-                }
+            if (actionId && personId && selectionStart !== null && selectionEnd !== null && selectionStart <= selectionEnd) {
+                annotations.push({
+                    personId: personId,
+                    actionId: actionId,
+                    start: selectionStart,
+                    end: selectionEnd
+                });
                 updateAnnotationVisualization();
                 updateAnnotationList();
-                keyFrames.length = 0; // Clear key frames
+                selectionStart = null;
+                selectionEnd = null;
+                const selectionBox = document.getElementById('selection-box');
+                selectionBox.style.display = 'none';
             }
         }
 
@@ -243,6 +272,13 @@
             const annotationBar = document.createElement('div');
             annotationBar.className = 'annotation-bar';
             visualizationDiv.appendChild(annotationBar);
+
+            // Add the selection box
+            const selectionBox = document.createElement('div');
+            selectionBox.className = 'selection-box';
+            selectionBox.id = 'selection-box';
+            selectionBox.style.display = 'none';
+            visualizationDiv.appendChild(selectionBox);
         }
 
         function updateAnnotationList() {
@@ -268,6 +304,12 @@
         videoSlider.addEventListener('input', function() {
             loadImage(parseInt(this.value));
         });
+
+        // Handle selection box dragging
+        const annotationVisualization = document.getElementById('annotation-visualization');
+        annotationVisualization.addEventListener('mousedown', startSelection);
+        annotationVisualization.addEventListener('mousemove', updateSelection);
+        annotationVisualization.addEventListener('mouseup', endSelection);
 
         // Load the first image initially if any
         if (images.length > 0) {
