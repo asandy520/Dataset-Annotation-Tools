@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Folder to Video with Annotations and Interval Marking</title>
+    <style>
+        #image-container {
+            width: 80%;
+            margin: auto;
+            text-align: center;
+        }
+        #image {
+            width: 100%;
+            height: auto;
+        }
+        #controls {
+            text-align: center;
+            margin: 20px;
+        }
+        #annotations {
+            text-align: center;
+            margin-top: 20px;
+        }
+        #annotation-list {
+            list-style: none;
+            padding: 0;
+        }
+        #file-input {
+            display: block;
+            margin: 20px auto;
+        }
+        .action-label {
+            display: inline-block;
+            width: 120px;
+            text-align: right;
+            margin-right: 10px;
+        }
+        #video-controls {
+            margin-top: 10px;
+        }
+        .annotation-visualization {
+            margin-top: 20px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            height: 20px; /* Adjust height for the bar */
+        }
+        .annotation-bar {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 5px; /* Height of the bar */
+            background-color: #000; /* Black color */
+            transform: translateY(-50%);
+            z-index: 1; /* Ensure it's above annotations */
+        }
+        .annotation-box {
+            margin: 5px;
+            padding: 5px;
+            border: 1px solid #333;
+            display: inline-block;
+            height: 10px; /* Adjust height as needed */
+            position: absolute;
+        }
+    </style>
+</head>
+<body>
+    <input type="file" id="file-input" webkitdirectory multiple accept="image/*">
+    <div id="image-container">
+        <img id="image" src="" alt="Image will be displayed here">
+    </div>
+    <div id="controls">
+        <button onclick="prevImage()">Previous</button>
+        <button onclick="nextImage()">Next</button>
+        <div id="video-controls">
+            <button onclick="togglePlayPause()">Play/Pause (Space)</button>
+            <input type="range" id="video-slider" min="0" value="0">
+        </div>
+        <select id="person-selector">
+            <option value="1">Person 1</option>
+            <option value="2">Person 2</option>
+            <option value="3">Person 3</option>
+        </select>
+        <select id="action-selector">
+            <option value="">Select action</option>
+            <option value="1">Nothing</option>
+            <option value="2">Rotating</option>
+            <option value="3">Picking up</option>
+            <option value="4">Stretching</option>
+            <option value="5">Squatting down</option>
+            <option value="6">Standing up</option>
+            <option value="7">Walking</option>
+            <option value="8">Jumping</option>
+            <option value="9">Waving</option>
+        </select>
+        <button onclick="markKeyFrame()">Mark Key Frame</button>
+        <button onclick="annotateKeyFrames()">Annotate Key Frames</button>
+    </div>
+    <div id="annotations">
+        <div class="annotation-visualization" id="annotation-visualization">
+            <div class="annotation-bar"></div>
+        </div>
+        <ul id="annotation-list"></ul>
+    </div>
+
+    <script>
+        let images = [];
+        let currentIndex = 0;
+        let intervalId = null;
+        const annotations = [];
+        const keyFrames = [];
+        const actions = [
+            'Nothing', 'Rotating', 'Picking up', 'Stretching',
+            'Squatting down', 'Standing up', 'Walking', 'Jumping', 'Waving'
+        ];
+        const actionColors = [
+            '#ff0000', // Red for Nothing
+            '#00ff00', // Green for Rotating
+            '#0000ff', // Blue for Picking up
+            '#ffff00', // Yellow for Stretching
+            '#ff00ff', // Magenta for Squatting down
+            '#00ffff', // Cyan for Standing up
+            '#ffa500', // Orange for Walking
+            '#800080', // Purple for Jumping
+            '#008000'  // Dark Green for Waving
+        ];
+
+        document.getElementById('file-input').addEventListener('change', function(event) {
+            const files = event.target.files;
+            images = Array.from(files).map(file => URL.createObjectURL(file));
+            if (images.length > 0) {
+                currentIndex = 0;
+                loadImage(currentIndex);
+                updateSliderMax(images.length - 1);
+                initializeAnnotation(); // Initialize annotations
+            }
+        });
+
+        function loadImage(index) {
+            if (index >= 0 && index < images.length) {
+                const img = document.getElementById('image');
+                img.src = images[index];
+                currentIndex = index;
+                updateAnnotationVisualization(); // Update visualization
+                updateAnnotationList(); // Update annotations when image changes
+            }
+        }
+
+        function updateSliderMax(maxValue) {
+            const slider = document.getElementById('video-slider');
+            slider.max = maxValue;
+        }
+
+        function prevImage() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                loadImage(currentIndex);
+            }
+        }
+
+        function nextImage() {
+            if (currentIndex < images.length - 1) {
+                currentIndex++;
+                loadImage(currentIndex);
+            }
+        }
+
+        function togglePlayPause() {
+            const videoSlider = document.getElementById('video-slider');
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+            } else {
+                intervalId = setInterval(() => {
+                    nextImage();
+                    videoSlider.value = currentIndex;
+                    if (currentIndex === images.length - 1) {
+                        clearInterval(intervalId);
+                        intervalId = null;
+                    }
+                }, 1000 / 24);
+            }
+        }
+
+        function markKeyFrame() {
+            if (!keyFrames.includes(currentIndex)) {
+                keyFrames.push(currentIndex);
+                keyFrames.sort((a, b) => a - b); // Ensure keyFrames are in order
+                updateAnnotationVisualization();
+                updateAnnotationList();
+            }
+        }
+
+        function annotateKeyFrames() {
+            const actionId = parseInt(document.getElementById('action-selector').value);
+            const personId = parseInt(document.getElementById('person-selector').value);
+            if (actionId && personId && keyFrames.length > 1) {
+                for (let i = 0; i < keyFrames.length - 1; i++) {
+                    const startFrame = keyFrames[i];
+                    const endFrame = keyFrames[i + 1] - 1;
+                    annotations.push({
+                        personId: personId,
+                        actionId: actionId,
+                        start: startFrame,
+                        end: endFrame
+                    });
+                }
+                updateAnnotationVisualization();
+                updateAnnotationList();
+                keyFrames.length = 0; // Clear key frames
+            }
+        }
+
+        function updateAnnotationVisualization() {
+            const visualizationDiv = document.getElementById('annotation-visualization');
+            visualizationDiv.innerHTML = '';
+
+            // Render annotations with colored boxes
+            annotations.forEach(annotation => {
+                const actionId = annotation.actionId;
+                const actionColor = actionColors[actionId - 1]; // Use predefined colors for each action
+
+                const startFrame = annotation.start;
+                const endFrame = annotation.end;
+                const startIndex = startFrame * (100 / images.length);
+                const endIndex = (endFrame + 1) * (100 / images.length);
+
+                const annotationBox = document.createElement('div');
+                annotationBox.style.backgroundColor = actionColor;
+                annotationBox.style.width = `${endIndex - startIndex}%`;
+                annotationBox.style.height = '10px'; // Adjust height as needed
+                annotationBox.style.position = 'absolute';
+                annotationBox.style.left = `${startIndex}%`;
+                annotationBox.classList.add('annotation-box');
+                visualizationDiv.appendChild(annotationBox);
+            });
+
+            // Add the black annotation bar
+            const annotationBar = document.createElement('div');
+            annotationBar.className = 'annotation-bar';
+            visualizationDiv.appendChild(annotationBar);
+        }
+
+        function updateAnnotationList() {
+            const annotationList = document.getElementById('annotation-list');
+            annotationList.innerHTML = '';
+
+            annotations.forEach((annotation, index) => {
+                const listItem = document.createElement('li');
+                listItem.textContent = `Annotation ${index + 1}: Person ${annotation.personId}, Action ${actions[annotation.actionId - 1]}, Frames ${annotation.start} to ${annotation.end}`;
+                annotationList.appendChild(listItem);
+            });
+        }
+
+        // Handle spacebar for play/pause functionality
+        document.body.onkeyup = function(e){
+            if(e.keyCode == 32){
+                togglePlayPause();
+            }
+        }
+
+        // Handle slider input for video navigation
+        const videoSlider = document.getElementById('video-slider');
+        videoSlider.addEventListener('input', function() {
+            loadImage(parseInt(this.value));
+        });
+
+        // Load the first image initially if any
+        if (images.length > 0) {
+            loadImage(currentIndex);
+        }
+    </script>
+</body>
+</html>
