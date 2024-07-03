@@ -68,15 +68,29 @@
         }
         .selection-box {
             position: absolute;
-            top: 0;
-            height: 100%;
-            background-color: rgba(0, 0, 255, 0.3); /* Semi-transparent blue */
-            z-index: 2; /* Above annotation boxes */
+            height: 10px; /* Adjust height as needed */
+            background-color: rgba(0, 0, 255, 0.5); /* Transparent blue color */
+            z-index: 2; /* Above the annotation bar */
+        }
+        .range-slider {
+            width: 100%;
+            margin: 20px auto;
+        }
+        .range-slider input {
+            width: 100%;
+        }
+        .annotation-color {
+            position: absolute;
+            height: 5px;
+            background-color: rgba(0, 0, 255, 0.5);
+            z-index: 1;
+            top: 50%;
+            transform: translateY(-50%);
         }
     </style>
 </head>
 <body>
-    <input type="file" id="file-input" webkitdirectory multiple accept="image/*">
+    <input type="file" id="file-input" webkitdirectory multiple accept=".jpg, .jpeg, .png">
     <div id="image-container">
         <img id="image" src="" alt="Image will be displayed here">
     </div>
@@ -105,20 +119,26 @@
             <option value="9">Waving</option>
         </select>
         <button onclick="annotateRange()">Annotate Range</button>
+        <button onclick="exportAnnotations()">Export Annotations</button>
     </div>
     <div id="annotations">
         <div class="annotation-visualization" id="annotation-visualization">
             <div class="annotation-bar"></div>
-            <div class="selection-box" id="selection-box" style="display: none;"></div>
+        </div>
+        <div class="range-slider">
+            <input type="range" id="start-slider" min="0" value="0">
+            <input type="range" id="end-slider" min="0" value="0">
+            <div class="annotation-color" id="annotation-color"></div>
         </div>
         <ul id="annotation-list"></ul>
     </div>
 
     <script>
         let images = [];
+        let imageFiles = [];
         let currentIndex = 0;
         let intervalId = null;
-        const annotations = [];
+        const annotations = {};
         const actions = [
             'Nothing', 'Rotating', 'Picking up', 'Stretching',
             'Squatting down', 'Standing up', 'Walking', 'Jumping', 'Waving'
@@ -134,13 +154,14 @@
             '#800080', // Purple for Jumping
             '#008000'  // Dark Green for Waving
         ];
-        let selectionStart = null;
-        let selectionEnd = null;
-        let isSelecting = false;
+        let folderName = '';
 
         document.getElementById('file-input').addEventListener('change', function(event) {
-            const files = event.target.files;
-            images = Array.from(files).map(file => URL.createObjectURL(file));
+            const files = Array.from(event.target.files);
+            files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })); // Sort files numerically by name
+            images = files.map(file => URL.createObjectURL(file));
+            imageFiles = files;
+            folderName = files[0].webkitRelativePath.split('/')[0]; // Get the folder name
             if (images.length > 0) {
                 currentIndex = 0;
                 loadImage(currentIndex);
@@ -156,12 +177,15 @@
                 currentIndex = index;
                 updateAnnotationVisualization(); // Update visualization
                 updateAnnotationList(); // Update annotations when image changes
+                document.getElementById('video-slider').value = currentIndex;
             }
         }
 
         function updateSliderMax(maxValue) {
             const slider = document.getElementById('video-slider');
             slider.max = maxValue;
+            document.getElementById('start-slider').max = maxValue;
+            document.getElementById('end-slider').max = maxValue;
         }
 
         function prevImage() {
@@ -183,6 +207,7 @@
             if (intervalId) {
                 clearInterval(intervalId);
                 intervalId = null;
+                document.getElementById('end-slider').value = currentIndex;
             } else {
                 intervalId = setInterval(() => {
                     nextImage();
@@ -195,85 +220,54 @@
             }
         }
 
-        function startSelection(e) {
-            const visualizationDiv = document.getElementById('annotation-visualization');
-            const rect = visualizationDiv.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            selectionStart = Math.floor((x / rect.width) * images.length);
-            const selectionBox = document.getElementById('selection-box');
-            selectionBox.style.left = `${x}px`;
-            selectionBox.style.width = '0px';
-            selectionBox.style.display = 'block';
-            isSelecting = true;
-        }
-
-        function updateSelection(e) {
-            if (isSelecting) {
-                const visualizationDiv = document.getElementById('annotation-visualization');
-                const rect = visualizationDiv.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                selectionEnd = Math.floor((x / rect.width) * images.length);
-                const selectionBox = document.getElementById('selection-box');
-                selectionBox.style.width = `${Math.abs(x - parseFloat(selectionBox.style.left))}px`;
-                if (x < parseFloat(selectionBox.style.left)) {
-                    selectionBox.style.left = `${x}px`;
-                }
-            }
-        }
-
-        function endSelection() {
-            isSelecting = false;
-        }
-
         function annotateRange() {
             const actionId = parseInt(document.getElementById('action-selector').value);
             const personId = parseInt(document.getElementById('person-selector').value);
-            if (actionId && personId && selectionStart !== null && selectionEnd !== null && selectionStart <= selectionEnd) {
-                annotations.push({
-                    personId: personId,
-                    actionId: actionId,
-                    start: selectionStart,
-                    end: selectionEnd
-                });
+            const startRangeIndex = parseInt(document.getElementById('start-slider').value);
+            const endRangeIndex = parseInt(document.getElementById('end-slider').value);
+            if (actionId && personId && startRangeIndex !== null && endRangeIndex !== null && startRangeIndex <= endRangeIndex) {
+                for (let i = startRangeIndex; i <= endRangeIndex; i++) {
+                    if (!annotations[i]) {
+                        annotations[i] = [];
+                    }
+                    annotations[i] = annotations[i].filter(ann => ann.personId !== personId);
+                    annotations[i].push({
+                        personId: personId,
+                        actionId: actionId,
+                        action: actions[actionId - 1]
+                    });
+                }
                 updateAnnotationVisualization();
                 updateAnnotationList();
-                selectionStart = null;
-                selectionEnd = null;
-                const selectionBox = document.getElementById('selection-box');
-                selectionBox.style.display = 'none';
+                document.getElementById('start-slider').value = currentIndex; // Sync start-slider with play after annotating
             }
+        }
+
+        function initializeAnnotation() {
+            updateAnnotationVisualization();
+            updateAnnotationList();
         }
 
         function updateAnnotationVisualization() {
             const visualizationDiv = document.getElementById('annotation-visualization');
-            visualizationDiv.innerHTML = '';
+            visualizationDiv.innerHTML = ''; // Clear previous annotations
 
-            // Render annotations with colored boxes
-            annotations.forEach(annotation => {
-                const actionId = annotation.actionId;
-                const actionColor = actionColors[actionId - 1]; // Use predefined colors for each action
-
-                const startFrame = annotation.start;
-                const endFrame = annotation.end;
-                const startIndex = startFrame * (100 / images.length);
-                const endIndex = (endFrame + 1) * (100 / images.length);
-
-                const annotationBox = document.createElement('div');
-                annotationBox.style.backgroundColor = actionColor;
-                annotationBox.style.width = `${endIndex - startIndex}%`;
-                annotationBox.style.height = '10px'; // Adjust height as needed
-                annotationBox.style.position = 'absolute';
-                annotationBox.style.left = `${startIndex}%`;
-                annotationBox.classList.add('annotation-box');
-                visualizationDiv.appendChild(annotationBox);
+            Object.keys(annotations).forEach(index => {
+                const annotation = annotations[index];
+                annotation.forEach(ann => {
+                    const actionColor = actionColors[ann.actionId - 1];
+                    const annotationBox = document.createElement('div');
+                    annotationBox.style.backgroundColor = actionColor;
+                    annotationBox.style.left = `${(index / images.length) * 100}%`;
+                    annotationBox.classList.add('annotation-box');
+                    visualizationDiv.appendChild(annotationBox);
+                });
             });
 
-            // Add the black annotation bar
             const annotationBar = document.createElement('div');
             annotationBar.className = 'annotation-bar';
             visualizationDiv.appendChild(annotationBar);
 
-            // Add the selection box
             const selectionBox = document.createElement('div');
             selectionBox.className = 'selection-box';
             selectionBox.id = 'selection-box';
@@ -285,36 +279,88 @@
             const annotationList = document.getElementById('annotation-list');
             annotationList.innerHTML = '';
 
-            annotations.forEach((annotation, index) => {
-                const listItem = document.createElement('li');
-                listItem.textContent = `Annotation ${index + 1}: Person ${annotation.personId}, Action ${actions[annotation.actionId - 1]}, Frames ${annotation.start} to ${annotation.end}`;
-                annotationList.appendChild(listItem);
+            Object.keys(annotations).forEach(index => {
+                const annotation = annotations[index];
+                annotation.forEach(ann => {
+                    const listItem = document.createElement('li');
+                    // listItem.textContent = `Frame ${index}: Person ${ann.personId}, Action ${ann.action}`;
+                    annotationList.appendChild(listItem);
+                });
             });
         }
 
-        // Handle spacebar for play/pause functionality
-        document.body.onkeyup = function(e){
-            if(e.keyCode == 32){
+        function exportAnnotations() {
+            const exportData = {};
+
+            imageFiles.forEach((file, index) => {
+                const imageName = file.name;
+                const annotation = annotations[index];
+                if (annotation) {
+                    exportData[imageName] = annotation.map(ann => ({
+                        personId: ann.personId,
+                        action: ann.action
+                    }));
+                } else {
+                    exportData[imageName] = [];
+                }
+            });
+
+            const json = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${folderName}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        document.body.onkeyup = function(e) {
+            if (e.keyCode == 32) {
                 togglePlayPause();
+            } else if (e.keyCode >= 48 && e.keyCode <= 57) {
+                const actionId = e.keyCode - 48;
+                const actionSelector = document.getElementById('action-selector');
+                actionSelector.value = actionId;
+                annotateRange();
             }
         }
 
-        // Handle slider input for video navigation
         const videoSlider = document.getElementById('video-slider');
         videoSlider.addEventListener('input', function() {
             loadImage(parseInt(this.value));
         });
 
-        // Handle selection box dragging
-        const annotationVisualization = document.getElementById('annotation-visualization');
-        annotationVisualization.addEventListener('mousedown', startSelection);
-        annotationVisualization.addEventListener('mousemove', updateSelection);
-        annotationVisualization.addEventListener('mouseup', endSelection);
+        const startSlider = document.getElementById('start-slider');
+        const endSlider = document.getElementById('end-slider');
+        const annotationColor = document.getElementById('annotation-color');
 
-        // Load the first image initially if any
-        if (images.length > 0) {
-            loadImage(currentIndex);
+        startSlider.addEventListener('input', function() {
+            loadImage(parseInt(this.value));
+            updateSelectionColor();
+        });
+
+        endSlider.addEventListener('input', function() {
+            loadImage(parseInt(this.value));
+            updateSelectionColor();
+        });
+
+        function updateSelectionColor() {
+            const startValue = parseInt(startSlider.value);
+            const endValue = parseInt(endSlider.value);
+            if (startValue <= endValue) {
+                annotationColor.style.left = `${(startValue / images.length) * 100}%`;
+                annotationColor.style.width = `${((endValue - startValue + 1) / images.length) * 100}%`;
+            }
         }
+
+        document.getElementById('person-selector').addEventListener('change', function() {
+            loadImage(0); // Start from the first image when changing person
+            currentIndex = 0;
+            document.getElementById('start-slider').value = currentIndex;
+            document.getElementById('end-slider').value = currentIndex;
+        });
     </script>
 </body>
 </html>
