@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keypoint Annotation Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jcanvas/21.0.1/jcanvas.min.js"></script>
+    <style>
+        #imageContainer {
+            position: relative;
+            display: inline-block;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="imageContainer">
+        <img id="annotationImage" src="" alt="Annotation Image">
+        <canvas id="annotationCanvas"></canvas>
+    </div>
+    <div>
+        <button id="prevImage">Previous Image</button>
+        <button id="nextImage">Next Image</button>
+    </div>
+
+    <script>
+        const keypoints = [
+            "Nose", "LEye", "REye", "LEar", "REar", "LShoulder", "RShoulder", "LElbow", "RElbow", "LWrist",
+            "RWrist", "LHip", "RHip", "LKnee", "Rknee", "LAnkle", "RAnkle", "Head", "Neck", "Hip",
+            "LBigToe", "RBigToe", "LSmallToe", "RSmallToe", "LHeel", "RHeel"
+        ];
+
+        let jsonData;
+        let currentImageIndex = 0;
+
+        function loadJSON(callback) {
+            $.getJSON('alphapose-results.json', function(data) {
+                jsonData = data;
+                callback();
+            });
+        }
+
+        function loadImage(imageId) {
+            $('#annotationImage').attr('src', imageId);
+            $('#annotationImage').on('load', function() {
+                drawAnnotations(imageId);
+            });
+        }
+
+        function drawAnnotations(imageId) {
+            const canvas = $('#annotationCanvas');
+            canvas.attr('width', $('#annotationImage').width());
+            canvas.attr('height', $('#annotationImage').height());
+            
+            const annotations = jsonData.filter(item => item.image_id === imageId);
+            
+            canvas.clearCanvas();
+
+            annotations.forEach(annotation => {
+                drawKeypoints(canvas, annotation.keypoints);
+                drawBoundingBox(canvas, annotation.box);
+            });
+        }
+
+        function drawKeypoints(canvas, keypoints) {
+            for (let i = 0; i < keypoints.length; i += 3) {
+                const x = keypoints[i];
+                const y = keypoints[i + 1];
+                const visibility = keypoints[i + 2];
+
+                if (visibility > 0) {
+                    canvas.drawArc({
+                        draggable: true,
+                        fillStyle: 'red',
+                        x: x, y: y,
+                        radius: 5,
+                        data: { keypointIndex: i / 3 },
+                        drag: function(layer) {
+                            const annotation = jsonData.find(item => item.image_id === $('#annotationImage').attr('src'));
+                            annotation.keypoints[layer.data.keypointIndex * 3] = layer.x;
+                            annotation.keypoints[layer.data.keypointIndex * 3 + 1] = layer.y;
+                        },
+                        dragstop: function(layer) {
+                            console.log(`Keypoint ${keypoints[layer.data.keypointIndex]} moved to (${layer.x}, ${layer.y})`);
+                        }
+                    });
+                }
+            }
+        }
+
+        function drawBoundingBox(canvas, box) {
+            canvas.drawRect({
+                strokeStyle: 'blue',
+                strokeWidth: 2,
+                x: box[0], y: box[1],
+                width: box[2],
+                height: box[3],
+                fromCenter: false
+            });
+        }
+
+        $(document).ready(function() {
+            loadJSON(function() {
+                const firstImage = jsonData[0].image_id;
+                loadImage(firstImage);
+            });
+
+            $('#prevImage').click(function() {
+                if (currentImageIndex > 0) {
+                    currentImageIndex--;
+                    loadImage(jsonData[currentImageIndex].image_id);
+                }
+            });
+
+            $('#nextImage').click(function() {
+                if (currentImageIndex < jsonData.length - 1) {
+                    currentImageIndex++;
+                    loadImage(jsonData[currentImageIndex].image_id);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
