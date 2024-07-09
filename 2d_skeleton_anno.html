@@ -2,128 +2,142 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Keypoint Annotation Tool</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jcanvas/21.0.1/jcanvas.min.js"></script>
+    <title>Annotation Tool</title>
+    <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css" />
+    <script defer src="https://pyscript.net/latest/pyscript.js"></script>
     <style>
-        #imageContainer {
-            position: relative;
-            display: inline-block;
-        }
         canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
+            border: 1px solid black;
+        }
+        #controls {
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
-    <div id="imageContainer">
-        <img id="annotationImage" src="" alt="Annotation Image">
-        <canvas id="annotationCanvas"></canvas>
+    <h1>Annotation Tool</h1>
+    <input type="file" id="folderInput" webkitdirectory directory multiple>
+    <div id="controls">
+        <button id="addKeypointMode">Add Keypoint</button>
+        <button id="addPersonMode">Add Person</button>
+        <button id="saveAnnotations">Save Annotations</button>
     </div>
-    <div>
-        <button id="prevImage">Previous Image</button>
-        <button id="nextImage">Next Image</button>
-    </div>
+    <canvas id="canvas"></canvas>
 
-    <script>
-        const keypoints = [
-            "Nose", "LEye", "REye", "LEar", "REar", "LShoulder", "RShoulder", "LElbow", "RElbow", "LWrist",
-            "RWrist", "LHip", "RHip", "LKnee", "Rknee", "LAnkle", "RAnkle", "Head", "Neck", "Hip",
-            "LBigToe", "RBigToe", "LSmallToe", "RSmallToe", "LHeel", "RHeel"
-        ];
+    <py-script>
+        import json
+        from js import document, fetch
+        from pyodide.ffi import to_js
 
-        let jsonData;
-        let currentImageIndex = 0;
+        folder_path = ""
+        images = []
+        current_image_index = 0
+        annotations = []
+        keypoints = []
+        add_keypoint_mode = False
+        add_person_mode = False
 
-        function loadJSON(callback) {
-            $.getJSON('alphapose-results.json', function(data) {
-                jsonData = data;
-                callback();
-            });
-        }
+        def load_image():
+            img = document.createElement('img')
+            img.src = f'{folder_path}/{images[current_image_index]}'
+            img.onload = lambda: draw_image(img)
+            document.body.appendChild(img)
 
-        function loadImage(imageId) {
-            $('#annotationImage').attr('src', imageId);
-            $('#annotationImage').on('load', function() {
-                drawAnnotations(imageId);
-            });
-        }
+        def draw_image(img):
+            canvas = document.getElementById('canvas')
+            ctx = canvas.getContext('2d')
+            canvas.width = img.width
+            canvas.height = img.height
+            ctx.drawImage(img, 0, 0)
+            draw_keypoints(ctx)
 
-        function drawAnnotations(imageId) {
-            const canvas = $('#annotationCanvas');
-            canvas.attr('width', $('#annotationImage').width());
-            canvas.attr('height', $('#annotationImage').height());
-            
-            const annotations = jsonData.filter(item => item.image_id === imageId);
-            
-            canvas.clearCanvas();
+        def draw_keypoints(ctx):
+            img_id = images[current_image_index]
+            people = [a for a in annotations if a['image_id'] == img_id]
+            for person in people:
+                keypoints = person['keypoints']
+                for i in range(0, len(keypoints), 3):
+                    x, y, confidence = keypoints[i:i+3]
+                    if confidence > 0.5:
+                        ctx.fillStyle = 'red'
+                        ctx.beginPath()
+                        ctx.arc(x, y, 5, 0, 2 * 3.14)
+                        ctx.fill()
 
-            annotations.forEach(annotation => {
-                drawKeypoints(canvas, annotation.keypoints);
-                drawBoundingBox(canvas, annotation.box);
-            });
-        }
+        def load_annotations():
+            global annotations
+            fetch(f'{folder_path}/alphapose-results.json').then(
+                lambda response: response.json()
+            ).then(
+                lambda data: annotations.extend(data)
+            )
 
-        function drawKeypoints(canvas, keypoints) {
-            for (let i = 0; i < keypoints.length; i += 3) {
-                const x = keypoints[i];
-                const y = keypoints[i + 1];
-                const visibility = keypoints[i + 2];
+        def save_annotations(event):
+            data = to_js(annotations)
+            js_annotations = json.dumps(data)
+            fetch(f'{folder_path}/alphapose-results.json', {
+                'method': 'POST',
+                'body': js_annotations
+            }).then(
+                lambda response: print("Annotations saved")
+            )
 
-                if (visibility > 0) {
-                    canvas.drawArc({
-                        draggable: true,
-                        fillStyle: 'red',
-                        x: x, y: y,
-                        radius: 5,
-                        data: { keypointIndex: i / 3 },
-                        drag: function(layer) {
-                            const annotation = jsonData.find(item => item.image_id === $('#annotationImage').attr('src'));
-                            annotation.keypoints[layer.data.keypointIndex * 3] = layer.x;
-                            annotation.keypoints[layer.data.keypointIndex * 3 + 1] = layer.y;
-                        },
-                        dragstop: function(layer) {
-                            console.log(`Keypoint ${keypoints[layer.data.keypointIndex]} moved to (${layer.x}, ${layer.y})`);
-                        }
-                    });
+        def on_image_click(event):
+            rect = canvas.getBoundingClientRect()
+            x = event.clientX - rect.left
+            y = event.clientY - rect.top
+            if add_keypoint_mode:
+                keypoints.extend([x, y, 1])
+                draw_keypoints(canvas.getContext('2d'))
+                add_keypoint_mode = False
+            elif add_person_mode:
+                new_person = {
+                    'image_id': images[current_image_index],
+                    'keypoints': [0] * 78
                 }
-            }
-        }
+                annotations.append(new_person)
+                keypoints = new_person['keypoints']
+                add_person_mode = False
 
-        function drawBoundingBox(canvas, box) {
-            canvas.drawRect({
-                strokeStyle: 'blue',
-                strokeWidth: 2,
-                x: box[0], y: box[1],
-                width: box[2],
-                height: box[3],
-                fromCenter: false
-            });
-        }
+        def setup():
+            document.getElementById('folderInput').addEventListener('change', lambda event: select_folder(event))
+            document.getElementById('addKeypointMode').addEventListener('click', lambda event: set_mode('keypoint'))
+            document.getElementById('addPersonMode').addEventListener('click', lambda event: set_mode('person'))
+            document.getElementById('saveAnnotations').addEventListener('click', lambda event: save_annotations(event))
+            canvas = document.getElementById('canvas')
+            canvas.addEventListener('click', lambda event: on_image_click(event))
+            window.addEventListener('keydown', lambda event: navigate_images(event))
 
-        $(document).ready(function() {
-            loadJSON(function() {
-                const firstImage = jsonData[0].image_id;
-                loadImage(firstImage);
-            });
+        def select_folder(event):
+            global folder_path
+            folder_path = event.target.files[0].webkitRelativePath.split('/')[0]
+            fetch(f'/images?folder={folder_path}').then(
+                lambda response: response.json()
+            ).then(
+                lambda data: images.extend(data)
+            )
+            load_image()
+            load_annotations()
 
-            $('#prevImage').click(function() {
-                if (currentImageIndex > 0) {
-                    currentImageIndex--;
-                    loadImage(jsonData[currentImageIndex].image_id);
-                }
-            });
+        def set_mode(mode):
+            global add_keypoint_mode, add_person_mode
+            if mode == 'keypoint':
+                add_keypoint_mode = True
+                add_person_mode = False
+            elif mode == 'person':
+                add_keypoint_mode = False
+                add_person_mode = True
 
-            $('#nextImage').click(function() {
-                if (currentImageIndex < jsonData.length - 1) {
-                    currentImageIndex++;
-                    loadImage(jsonData[currentImageIndex].image_id);
-                }
-            });
-        });
-    </script>
+        def navigate_images(event):
+            global current_image_index
+            if event.key == 'ArrowRight':
+                current_image_index = (current_image_index + 1) % len(images)
+                load_image()
+            elif event.key == 'ArrowLeft':
+                current_image_index = (current_image_index - 1 + len(images)) % len(images)
+                load_image()
+
+        setup()
+    </py-script>
 </body>
 </html>
