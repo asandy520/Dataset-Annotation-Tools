@@ -27,7 +27,7 @@ line_color = [(0, 215, 255), (0, 255, 204), (0, 134, 255), (0, 255, 50),
 
 # Global variables
 selected_keypoint = None
-selected_person_index = None
+selected_person = None
 keypoints = []
 add_mode = False
 
@@ -37,8 +37,8 @@ def select_folder():
     folder_path = filedialog.askdirectory()
     return folder_path
 
-def draw_keypoints(image, keypoints_list, selected_keypoint, selected_person_index):
-    for person_index, keypoints in enumerate(keypoints_list):
+def draw_keypoints(image, all_keypoints):
+    for keypoints in all_keypoints:
         for pair, color in zip(l_pair, line_color):
             pt1 = (int(keypoints[pair[0] * 3]), int(keypoints[pair[0] * 3 + 1]))
             pt2 = (int(keypoints[pair[1] * 3]), int(keypoints[pair[1] * 3 + 1]))
@@ -46,34 +46,32 @@ def draw_keypoints(image, keypoints_list, selected_keypoint, selected_person_ind
                 cv2.line(image, pt1, pt2, color, 2)
         
         for i in range(0, len(keypoints), 3):
-            if not (person_index == selected_person_index and i == selected_keypoint):
-                x, y, confidence = keypoints[i], keypoints[i + 1], keypoints[i + 2]
-                if confidence < 0.5:  # only draw keypoints with a high confidence
-                    cv2.circle(image, (int(x), int(y)), 5, p_color[i // 3], -1)
+            x, y, confidence = keypoints[i], keypoints[i + 1], keypoints[i + 2]
+            if confidence < 0.5:  # only draw keypoints with a high confidence
+                cv2.circle(image, (int(x), int(y)), 5, p_color[i // 3], -1)
     return image
 
 def mouse_callback(event, x, y, flags, param):
-    global selected_keypoint, selected_person_index, add_mode, keypoints
+    global selected_keypoint, selected_person, add_mode, keypoints
     if event == cv2.EVENT_LBUTTONDOWN:
         if add_mode:
-            if len(keypoints) < 78:
-                keypoints.extend([x, y, 1])
+            if len(keypoints[selected_person]) < 78:
+                keypoints[selected_person].extend([x, y, 1])
             add_mode = False
         else:
-            for person_index, keypoints in enumerate(param):
-                for i in range(0, len(keypoints), 3):
-                    kx, ky = keypoints[i], keypoints[i + 1]
+            for person_idx, person_keypoints in enumerate(keypoints):
+                for i in range(0, len(person_keypoints), 3):
+                    kx, ky = person_keypoints[i], person_keypoints[i + 1]
                     if (kx - x) ** 2 + (ky - y) ** 2 < 100:
                         selected_keypoint = i
-                        selected_person_index = person_index
+                        selected_person = person_idx
                         break
     elif event == cv2.EVENT_MOUSEMOVE:
-        if selected_keypoint is not None and selected_person_index is not None:
-            param[selected_person_index][selected_keypoint] = x
-            param[selected_person_index][selected_keypoint + 1] = y
+        if selected_keypoint is not None:
+            keypoints[selected_person][selected_keypoint] = x
+            keypoints[selected_person][selected_keypoint + 1] = y
     elif event == cv2.EVENT_LBUTTONUP:
         selected_keypoint = None
-        selected_person_index = None
 
 def main():
     global keypoints, add_mode
@@ -86,27 +84,36 @@ def main():
     img_dict = {}
     for entry in data:
         img_id = entry['image_id']
-        keypoints = entry['keypoints']
+        person_keypoints = entry['keypoints']
         
         # Ensure keypoints list is of length 78 (26 keypoints * 3 values each)
-        if len(keypoints) < 78:
-            keypoints.extend([0, 0, 0] * (26 - len(keypoints) // 3))
+        if len(person_keypoints) < 78:
+            person_keypoints.extend([0, 0, 0] * (26 - len(person_keypoints) // 3))
         
         if img_id not in img_dict:
             img_dict[img_id] = []
-        img_dict[img_id].append(keypoints)
+        img_dict[img_id].append(person_keypoints)
     
     for img_id, all_keypoints in img_dict.items():
+        keypoints = all_keypoints
         img_path = os.path.join(folder_path, img_id)
         if os.path.exists(img_path):
             image = cv2.imread(img_path)
             
             cv2.namedWindow('Keypoints')
-            cv2.setMouseCallback('Keypoints', mouse_callback, param=all_keypoints)
+            cv2.setMouseCallback('Keypoints', mouse_callback)
             
             while True:
                 img_copy = image.copy()
-                img_copy = draw_keypoints(img_copy, all_keypoints, selected_keypoint, selected_person_index)
+                for i, person_keypoints in enumerate(keypoints):
+                    if i == selected_person and selected_keypoint is not None:
+                        temp_keypoints = person_keypoints.copy()
+                        temp_keypoints[selected_keypoint] = -1
+                        temp_keypoints[selected_keypoint + 1] = -1
+                        img_copy = draw_keypoints(img_copy, [temp_keypoints])
+                    else:
+                        img_copy = draw_keypoints(img_copy, [person_keypoints])
+                
                 cv2.imshow('Keypoints', img_copy)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
