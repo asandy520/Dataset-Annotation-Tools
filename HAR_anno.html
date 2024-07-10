@@ -154,19 +154,25 @@
             '#800080', // Purple for Jumping
             '#008000'  // Dark Green for Waving
         ];
-        let folderName = '';
+        let folderPath = '';
+        let parentFolderName = '';
 
         document.getElementById('file-input').addEventListener('change', function(event) {
             const files = Array.from(event.target.files);
-            files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })); // Sort files numerically by name
+            files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
             images = files.map(file => URL.createObjectURL(file));
             imageFiles = files;
-            folderName = files[0].webkitRelativePath.split('/')[0]; // Get the folder name
+            
+            // Get the folder structure
+            const pathParts = files[0].webkitRelativePath.split('/');
+            folderName = pathParts[pathParts.length - 2]; // The directly selected folder
+            parentFolderName = pathParts.length > 2 ? pathParts[pathParts.length - 3] : ''; // The folder before the selected one
+            
             if (images.length > 0) {
                 currentIndex = 0;
                 loadImage(currentIndex);
                 updateSliderMax(images.length - 1);
-                initializeAnnotation(); // Initialize annotations
+                initializeAnnotation();
             }
         });
 
@@ -310,10 +316,15 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${folderName}.json`;
+            
+            // Use the parent folder name for the JSON file
+            const fileName = parentFolderName ? `${parentFolderName}.json` : 'har_annotations.json';
+            a.download = fileName;
+            
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         document.body.onkeyup = function(e) {
