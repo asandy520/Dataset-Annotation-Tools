@@ -25,11 +25,15 @@ line_color = [(0, 215, 255), (0, 255, 204), (0, 134, 255), (0, 255, 50),
               (0, 127, 255), (255, 127, 77), (0, 77, 255), (255, 77, 36),
               (0, 77, 255), (0, 77, 255), (0, 77, 255), (0, 77, 255), (255, 156, 127), (255, 156, 127)]
 
+highlight_color = (0, 0, 255)  # Red color for highlighting the latest line
+
 # Global variables
 selected_keypoint = None
 selected_person = None
 keypoints = []
 add_mode = False
+current_image_index = 0
+images_list = []
 
 def select_folder():
     root = tk.Tk()
@@ -42,14 +46,20 @@ def draw_keypoints(image, all_keypoints):
         for pair, color in zip(l_pair, line_color):
             pt1 = (int(keypoints[pair[0] * 3]), int(keypoints[pair[0] * 3 + 1]))
             pt2 = (int(keypoints[pair[1] * 3]), int(keypoints[pair[1] * 3 + 1]))
-            if keypoints[pair[0] * 3 + 2] > 0.5 and keypoints[pair[1] * 3 + 2] > 0.5:
-                cv2.line(image, pt1, pt2, color, 2)
+#            if keypoints[pair[0] * 3 + 2] > 0.5 and keypoints[pair[1] * 3 + 2] > 0.5:
+            cv2.line(image, pt1, pt2, color, 2)
         
         for i in range(0, len(keypoints), 3):
             x, y, confidence = keypoints[i], keypoints[i + 1], keypoints[i + 2]
             if confidence < 0.5:  # only draw keypoints with a high confidence
                 cv2.circle(image, (int(x), int(y)), 5, p_color[i // 3], -1)
     return image
+
+def highlight_keypoint_line(image, keypoints, pair, color):
+    pt1 = (int(keypoints[pair[0] * 3]), int(keypoints[pair[0] * 3 + 1]))
+    pt2 = (int(keypoints[pair[1] * 3]), int(keypoints[pair[1] * 3 + 1]))
+    if keypoints[pair[0] * 3 + 2] > 0.5 and keypoints[pair[1] * 3 + 2] > 0.5:
+        cv2.line(image, pt1, pt2, color, 2)
 
 def mouse_callback(event, x, y, flags, param):
     global selected_keypoint, selected_person, add_mode, keypoints
@@ -74,7 +84,7 @@ def mouse_callback(event, x, y, flags, param):
         selected_keypoint = None
 
 def main():
-    global keypoints, add_mode
+    global keypoints, add_mode, current_image_index, images_list
     folder_path = select_folder()
     json_file_path = os.path.join(folder_path, 'alphapose-results.json')
     
@@ -94,8 +104,11 @@ def main():
             img_dict[img_id] = []
         img_dict[img_id].append(person_keypoints)
     
-    for img_id, all_keypoints in img_dict.items():
-        keypoints = all_keypoints
+    images_list = list(img_dict.keys())
+    
+    while current_image_index < len(images_list):
+        img_id = images_list[current_image_index]
+        keypoints = img_dict[img_id]
         img_path = os.path.join(folder_path, img_id)
         if os.path.exists(img_path):
             image = cv2.imread(img_path)
@@ -111,16 +124,26 @@ def main():
                         temp_keypoints[selected_keypoint] = -1
                         temp_keypoints[selected_keypoint + 1] = -1
                         img_copy = draw_keypoints(img_copy, [temp_keypoints])
+                        pair_indices = [j for j, pair in enumerate(l_pair) if pair[0] == selected_keypoint // 3 or pair[1] == selected_keypoint // 3]
+                        for index in pair_indices:
+                            highlight_keypoint_line(img_copy, temp_keypoints, l_pair[index], highlight_color)
                     else:
                         img_copy = draw_keypoints(img_copy, [person_keypoints])
                 
                 cv2.imshow('Keypoints', img_copy)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
-                    break
+                    cv2.destroyAllWindows()
+                    return
                 elif key == ord('a'):
                     add_mode = True
-            
+                elif key == ord('n'):  # Move to the next image
+                    current_image_index += 1
+                    break
+                elif key == ord('p'):  # Move to the previous image
+                    if current_image_index > 0:
+                        current_image_index -= 1
+                        break
             cv2.destroyAllWindows()
         else:
             print(f"Image {img_id} not found in the folder")
