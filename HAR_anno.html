@@ -159,12 +159,20 @@
 
         document.getElementById('file-input').addEventListener('change', function(event) {
             const files = Array.from(event.target.files);
-            files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-            images = files.map(file => URL.createObjectURL(file));
-            imageFiles = files;
+
+            // Filter files to only include those directly in the selected folder
+            const selectedFolder = files[0].webkitRelativePath.split('/')[0];
+            const filteredFiles = files.filter(file => {
+                const path = file.webkitRelativePath.split('/');
+                return path.length === 2 && path[0] === selectedFolder;
+            });
+            
+            filteredFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+            images = filteredFiles.map(file => URL.createObjectURL(file));
+            imageFiles = filteredFiles;
             
             // Get the folder structure
-            const pathParts = files[0].webkitRelativePath.split('/');
+            const pathParts = filteredFiles[0].webkitRelativePath.split('/');
             folderName = pathParts[pathParts.length - 2]; // The directly selected folder
             parentFolderName = pathParts.length > 2 ? pathParts[pathParts.length - 3] : ''; // The folder before the selected one
             
