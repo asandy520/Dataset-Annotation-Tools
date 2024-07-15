@@ -34,12 +34,11 @@ selected_box = None
 selected_box_corner = None
 keypoints = []
 boxes = []
-add_mode = False
-flagged_images = set()
 current_image_index = 0
 images_list = []
 folder_path = ''
 json_file_path = ''
+LOW_CONFIDENCE_THRESHOLD = 0.5  # Adjust this value as needed
 
 def select_folder():
     root = tk.Tk()
@@ -66,25 +65,13 @@ def draw_boxes(image, all_boxes):
         x, y, w, h = map(int, box)
         cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Green color for the box
     return image
-    
-def save_flagged_list():
-    global flagged_images, folder_path
-    flagged_list_path = os.path.join(folder_path, 'flagged_images.txt')
-    with open(flagged_list_path, 'w') as f:
-        for img in flagged_images:
-            f.write(f"{img}\n")
-    print(f"Flagged list saved to {flagged_list_path}")
 
-def load_flagged_list():
-    global flagged_images, folder_path
-    flagged_list_path = os.path.join(folder_path, 'flagged_images.txt')
-    if os.path.exists(flagged_list_path):
-        with open(flagged_list_path, 'r') as f:
-            flagged_images = set(line.strip() for line in f)
-        print(f"Flagged list loaded from {flagged_list_path}")
-    else:
-        print("No existing flagged list found.")
-
+def highlight_keypoint_line(image, keypoints, pair, color):
+    pt1 = (int(keypoints[pair[0] * 3]), int(keypoints[pair[0] * 3 + 1]))
+    pt2 = (int(keypoints[pair[1] * 3]), int(keypoints[pair[1] * 3 + 1]))
+    if keypoints[pair[0] * 3 + 2] > 0.5 and keypoints[pair[1] * 3 + 2] > 0.5:
+        cv2.line(image, pt1, pt2, color, 2)
+        
 def jump_to_next_flagged():
     global current_image_index, images_list, flagged_images
     for i in range(current_image_index + 1, len(images_list)):
@@ -101,50 +88,38 @@ def jump_to_prev_flagged():
             return True
     return False
 
-def highlight_keypoint_line(image, keypoints, pair, color):
-    pt1 = (int(keypoints[pair[0] * 3]), int(keypoints[pair[0] * 3 + 1]))
-    pt2 = (int(keypoints[pair[1] * 3]), int(keypoints[pair[1] * 3 + 1]))
-    if keypoints[pair[0] * 3 + 2] > 0.5 and keypoints[pair[1] * 3 + 2] > 0.5:
-        cv2.line(image, pt1, pt2, color, 2)
-
 def mouse_callback(event, x, y, flags, param):
-    global selected_keypoint, selected_person, selected_box, selected_box_corner, add_mode, keypoints, boxes
+    global selected_keypoint, selected_person, selected_box, selected_box_corner, keypoints, boxes
     if event == cv2.EVENT_LBUTTONDOWN:
-        if add_mode:
-            if selected_person is not None and len(keypoints[selected_person]) < 78:
-                keypoints[selected_person].extend([x, y, 1])
-            add_mode = False
-            save_annotations()
-        else:
-            # Check if a keypoint is selected
-            selected_keypoint = None
-            selected_person = None
-            for person_idx, person_keypoints in enumerate(keypoints):
-                for i in range(0, len(person_keypoints), 3):
-                    kx, ky = person_keypoints[i], person_keypoints[i + 1]
-                    if (kx - x) ** 2 + (ky - y) ** 2 < 100:
-                        selected_keypoint = i
-                        selected_person = person_idx
-                        return
-            
-            # Check if a box is selected
-            selected_box = None
-            selected_box_corner = None
-            for box_idx, box in enumerate(boxes):
-                bx, by, bw, bh = box
-                if bx < x < bx + bw and by < y < by + bh:
-                    selected_box = box_idx
-                    if x - bx < 10 and y - by < 10:
-                        selected_box_corner = "tl"  # top-left corner
-                    elif x - bx < 10 and by + bh - y < 10:
-                        selected_box_corner = "bl"  # bottom-left corner
-                    elif bx + bw - x < 10 and y - by < 10:
-                        selected_box_corner = "tr"  # top-right corner
-                    elif bx + bw - x < 10 and by + bh - y < 10:
-                        selected_box_corner = "br"  # bottom-right corner
-                    else:
-                        selected_box_corner = None  # inside box, move it
+        # Check if a keypoint is selected
+        selected_keypoint = None
+        selected_person = None
+        for person_idx, person_keypoints in enumerate(keypoints):
+            for i in range(0, len(person_keypoints), 3):
+                kx, ky = person_keypoints[i], person_keypoints[i + 1]
+                if (kx - x) ** 2 + (ky - y) ** 2 < 100:
+                    selected_keypoint = i
+                    selected_person = person_idx
                     return
+        
+        # Check if a box is selected
+        selected_box = None
+        selected_box_corner = None
+        for box_idx, box in enumerate(boxes):
+            bx, by, bw, bh = box
+            if bx < x < bx + bw and by < y < by + bh:
+                selected_box = box_idx
+                if x - bx < 10 and y - by < 10:
+                    selected_box_corner = "tl"  # top-left corner
+                elif x - bx < 10 and by + bh - y < 10:
+                    selected_box_corner = "bl"  # bottom-left corner
+                elif bx + bw - x < 10 and y - by < 10:
+                    selected_box_corner = "tr"  # top-right corner
+                elif bx + bw - x < 10 and by + bh - y < 10:
+                    selected_box_corner = "br"  # bottom-right corner
+                else:
+                    selected_box_corner = None  # inside box, move it
+                return
 
     elif event == cv2.EVENT_MOUSEMOVE:
         if selected_keypoint is not None and selected_person is not None:
@@ -203,20 +178,26 @@ def main():
     folder_path = select_folder()
     json_file_path = os.path.join(folder_path, 'alphapose-results.json')
 
-    load_flagged_list()
-
     with open(json_file_path, 'r') as file:
         data = json.load(file)
 
     img_dict = {}
+    flagged_images = set()
     for entry in data:
         image_name = entry['image_id']
         if image_name not in img_dict:
             img_dict[image_name] = {'keypoints': [], 'boxes': []}
         img_dict[image_name]['keypoints'].append(entry['keypoints'])
         img_dict[image_name]['boxes'].append(entry['box'])
+        
+        # Check for low confidence keypoints
+        for keypoint in entry['keypoints'][2::3]:  # Check every third element (confidence scores)
+            if keypoint < LOW_CONFIDENCE_THRESHOLD:
+                flagged_images.add(image_name)
+                break
 
     images_list = sorted(img_dict.keys())
+    print(f"Found {len(flagged_images)} images with low confidence keypoints.")
 
     while current_image_index < len(images_list):
         image_name = images_list[current_image_index]
@@ -235,7 +216,7 @@ def main():
             img_copy = draw_boxes(img_copy, boxes)
 
             if image_name in flagged_images:
-                cv2.putText(img_copy, "FLAGGED", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                cv2.putText(img_copy, "LOW CONFIDENCE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
             if selected_person is not None and selected_keypoint is not None:
                 for pair in l_pair:
@@ -247,8 +228,13 @@ def main():
             cv2.imshow('Keypoints', img_copy)
 
             key = cv2.waitKey(1) & 0xFF
-            if key == 27:  # ESC to exit
-                save_flagged_list()
+            if key == ord('q'):  # 'q' to quit
+                print("Quitting the program.")
+                cv2.destroyAllWindows()
+                return
+            elif key == 27:  # ESC to exit
+                print("Exiting the program.")
+                cv2.destroyAllWindows()
                 return
             elif key == ord('n'):  # 'n' for next image
                 current_image_index += 1
@@ -256,26 +242,16 @@ def main():
             elif key == ord('p'):  # 'p' for previous image
                 current_image_index = max(0, current_image_index - 1)
                 break
-            elif key == ord('a'):  # 'a' to add keypoint mode
-                add_mode = True
-            elif key == ord('f'):  # 'f' to flag/unflag image
-                if image_name in flagged_images:
-                    flagged_images.remove(image_name)
-                    print(f"Unflagged {image_name}")
-                else:
-                    flagged_images.add(image_name)
-                    print(f"Flagged {image_name}")
-                save_flagged_list()
-            elif key == ord('j'):  # 'j' to jump to next flagged image
+            elif key == ord('j'):  # 'j' to jump to next low confidence image
                 if jump_to_next_flagged():
                     break
                 else:
-                    print("No more flagged images ahead")
-            elif key == ord('k'):  # 'k' to jump to previous flagged image
+                    print("No more low confidence images ahead")
+            elif key == ord('k'):  # 'k' to jump to previous low confidence image
                 if jump_to_prev_flagged():
                     break
                 else:
-                    print("No more flagged images before")
+                    print("No more low confidence images before")
 
     cv2.destroyAllWindows()
 
