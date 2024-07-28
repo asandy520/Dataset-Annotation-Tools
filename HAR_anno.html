@@ -46,31 +46,31 @@
             justify-content: center;
             align-items: center;
             flex-wrap: wrap;
-            height: 20px; /* Adjust height for the bar */
+            height: 20px;
         }
         .annotation-bar {
             position: absolute;
             top: 50%;
             left: 0;
             width: 100%;
-            height: 5px; /* Height of the bar */
-            background-color: #000; /* Black color */
+            height: 5px;
+            background-color: #000;
             transform: translateY(-50%);
-            z-index: 1; /* Ensure it's above annotations */
+            z-index: 1;
         }
         .annotation-box {
             margin: 5px;
             padding: 5px;
             border: 1px solid #333;
             display: inline-block;
-            height: 10px; /* Adjust height as needed */
+            height: 10px;
             position: absolute;
         }
         .selection-box {
             position: absolute;
-            height: 10px; /* Adjust height as needed */
-            background-color: rgba(0, 0, 255, 0.5); /* Transparent blue color */
-            z-index: 2; /* Above the annotation bar */
+            height: 10px;
+            background-color: rgba(0, 0, 255, 0.5);
+            z-index: 2;
         }
         .range-slider {
             width: 100%;
@@ -132,6 +132,7 @@
         </div>
         <ul id="annotation-list"></ul>
     </div>
+    <div id="folder-name"></div>
 
     <script>
         let images = [];
@@ -144,43 +145,59 @@
             'Squatting down', 'Standing up', 'Walking', 'Jumping', 'Waving'
         ];
         const actionColors = [
-            '#ff0000', // Red for Nothing
-            '#00ff00', // Green for Rotating
-            '#0000ff', // Blue for Picking up
-            '#ffff00', // Yellow for Stretching
-            '#ff00ff', // Magenta for Squatting down
-            '#00ffff', // Cyan for Standing up
-            '#ffa500', // Orange for Walking
-            '#800080', // Purple for Jumping
-            '#008000'  // Dark Green for Waving
+            '#ff0000', '#00ff00', '#0000ff', '#ffff00',
+            '#ff00ff', '#00ffff', '#ffa500', '#800080', '#008000'
         ];
-        let folderPath = '';
-        let parentFolderName = '';
+        let folderName = '';
 
         document.getElementById('file-input').addEventListener('change', function(event) {
-            const files = Array.from(event.target.files);
+            console.log('File input changed');
+            const allFiles = Array.from(event.target.files);
+            console.log('Total number of files:', allFiles.length);
 
-            // Filter files to only include those directly in the selected folder
-            const selectedFolder = files[0].webkitRelativePath.split('/')[0];
-            const filteredFiles = files.filter(file => {
-                const path = file.webkitRelativePath.split('/');
-                return path.length === 2 && path[0] === selectedFolder;
+            // Find the 'front_RGB' folder, excluding 'trash'
+            const frontRGBFiles = allFiles.filter(file => {
+                const pathParts = file.webkitRelativePath.split('/');
+                return pathParts.includes('front_RGB') && 
+                       !pathParts.includes('trash') && 
+                       file.name.match(/\.(jpg|jpeg|png)$/i);
             });
-            
-            filteredFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-            images = filteredFiles.map(file => URL.createObjectURL(file));
-            imageFiles = filteredFiles;
-            
-            // Get the folder structure
-            const pathParts = filteredFiles[0].webkitRelativePath.split('/');
-            folderName = pathParts[pathParts.length - 2]; // The directly selected folder
-            parentFolderName = pathParts.length > 2 ? pathParts[pathParts.length - 3] : ''; // The folder before the selected one
-            
-            if (images.length > 0) {
+
+            console.log('Number of files in front_RGB (excluding trash):', frontRGBFiles.length);
+
+            if (frontRGBFiles.length > 0) {
+                frontRGBFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+                images = frontRGBFiles.map(file => URL.createObjectURL(file));
+                imageFiles = frontRGBFiles;
+
+                // Get the selected folder name
+                const fullPath = frontRGBFiles[0].webkitRelativePath;
+                const pathParts = fullPath.split('/');
+                selectedFolderPath = pathParts.slice(0, -2).join('/'); // Exclude 'front_RGB' and file name
+                const selectedFolderName = pathParts[pathParts.length - 3]; // Get the selected folder name
+
+                console.log('Selected folder name:', selectedFolderName);
+
+                // Display the selected folder name
+                const folderNameElement = document.getElementById('folder-name');
+                if (folderNameElement) {
+                    folderNameElement.textContent = `Selected folder: ${selectedFolderName}`;
+                } else {
+                    console.error('folder-name element not found');
+                }
+
                 currentIndex = 0;
                 loadImage(currentIndex);
                 updateSliderMax(images.length - 1);
                 initializeAnnotation();
+
+                // Initialize both sliders to 0
+                document.getElementById('start-slider').value = 0;
+                document.getElementById('end-slider').value = 0;
+                updateSelectionColor();
+            } else {
+                console.log('No front_RGB folder found or no images in front_RGB folder (excluding trash)');
+                alert('Please select a folder containing a front_RGB subfolder with images (excluding trash).');
             }
         });
 
@@ -188,9 +205,15 @@
             if (index >= 0 && index < images.length) {
                 const img = document.getElementById('image');
                 img.src = images[index];
+                img.onload = function() {
+                    console.log('Image loaded successfully');
+                };
+                img.onerror = function() {
+                    console.error('Error loading image');
+                };
                 currentIndex = index;
-                updateAnnotationVisualization(); // Update visualization
-                updateAnnotationList(); // Update annotations when image changes
+                updateAnnotationVisualization();
+                updateAnnotationList();
                 document.getElementById('video-slider').value = currentIndex;
             }
         }
@@ -253,7 +276,7 @@
                 }
                 updateAnnotationVisualization();
                 updateAnnotationList();
-                document.getElementById('start-slider').value = currentIndex; // Sync start-slider with play after annotating
+                document.getElementById('start-slider').value = currentIndex;
             }
         }
 
@@ -264,7 +287,7 @@
 
         function updateAnnotationVisualization() {
             const visualizationDiv = document.getElementById('annotation-visualization');
-            visualizationDiv.innerHTML = ''; // Clear previous annotations
+            visualizationDiv.innerHTML = '';
 
             Object.keys(annotations).forEach(index => {
                 const annotation = annotations[index];
@@ -297,7 +320,6 @@
                 const annotation = annotations[index];
                 annotation.forEach(ann => {
                     const listItem = document.createElement('li');
-                    // listItem.textContent = `Frame ${index}: Person ${ann.personId}, Action ${ann.action}`;
                     annotationList.appendChild(listItem);
                 });
             });
@@ -306,8 +328,8 @@
         function exportAnnotations() {
             const exportData = {};
 
-            imageFiles.forEach((file, index) => {
-                const imageName = file.name;
+            images.forEach((imageUrl, index) => {
+                const imageName = imageFiles[index].name;
                 const annotation = annotations[index];
                 if (annotation) {
                     exportData[imageName] = annotation.map(ann => ({
@@ -324,15 +346,10 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            
-            // Use the parent folder name for the JSON file
-            const fileName = parentFolderName ? `${parentFolderName}.json` : 'har_annotations.json';
-            a.download = fileName;
-            
+            a.download = 'har_annotations_.json';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            URL.revokeObjectURL(url);
         }
 
         document.body.onkeyup = function(e) {
@@ -375,7 +392,7 @@
         }
 
         document.getElementById('person-selector').addEventListener('change', function() {
-            loadImage(0); // Start from the first image when changing person
+            loadImage(0);
             currentIndex = 0;
             document.getElementById('start-slider').value = currentIndex;
             document.getElementById('end-slider').value = currentIndex;
