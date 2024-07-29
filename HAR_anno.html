@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,35 +11,43 @@
             margin: auto;
             text-align: center;
         }
+
         #image {
             width: 100%;
             height: auto;
         }
+
         #controls {
             text-align: center;
             margin: 20px;
         }
+
         #annotations {
             text-align: center;
             margin-top: 20px;
         }
+
         #annotation-list {
             list-style: none;
             padding: 0;
         }
+
         #file-input {
             display: block;
             margin: 20px auto;
         }
+
         .action-label {
             display: inline-block;
             width: 120px;
             text-align: right;
             margin-right: 10px;
         }
+
         #video-controls {
             margin-top: 10px;
         }
+
         .annotation-visualization {
             margin-top: 20px;
             position: relative;
@@ -48,6 +57,7 @@
             flex-wrap: wrap;
             height: 20px;
         }
+
         .annotation-bar {
             position: absolute;
             top: 50%;
@@ -58,6 +68,7 @@
             transform: translateY(-50%);
             z-index: 1;
         }
+
         .annotation-box {
             margin: 5px;
             padding: 5px;
@@ -66,19 +77,23 @@
             height: 10px;
             position: absolute;
         }
+
         .selection-box {
             position: absolute;
             height: 10px;
             background-color: rgba(0, 0, 255, 0.5);
             z-index: 2;
         }
+
         .range-slider {
             width: 100%;
             margin: 20px auto;
         }
+
         .range-slider input {
             width: 100%;
         }
+
         .annotation-color {
             position: absolute;
             height: 5px;
@@ -89,6 +104,7 @@
         }
     </style>
 </head>
+
 <body>
     <input type="file" id="file-input" webkitdirectory multiple accept=".jpg, .jpeg, .png">
     <div id="image-container">
@@ -135,11 +151,11 @@
     <div id="folder-name"></div>
 
     <script>
+        var annotations = {};
         let images = [];
         let imageFiles = [];
         let currentIndex = 0;
         let intervalId = null;
-        const annotations = {};
         const actions = [
             'Nothing', 'Rotating', 'Picking up', 'Stretching',
             'Squatting down', 'Standing up', 'Walking', 'Jumping', 'Waving'
@@ -150,7 +166,7 @@
         ];
         let folderName = '';
 
-        document.getElementById('file-input').addEventListener('change', function(event) {
+        document.getElementById('file-input').addEventListener('change', function (event) {
             console.log('File input changed');
             const allFiles = Array.from(event.target.files);
             console.log('Total number of files:', allFiles.length);
@@ -158,10 +174,17 @@
             // Find the 'front_RGB' folder, excluding 'trash'
             const frontRGBFiles = allFiles.filter(file => {
                 const pathParts = file.webkitRelativePath.split('/');
-                return pathParts.includes('front_RGB') && 
-                       !pathParts.includes('trash') && 
-                       file.name.match(/\.(jpg|jpeg|png)$/i);
+                return pathParts.includes('front_RGB') &&
+                    !pathParts.includes('trash') &&
+                    file.name.match(/\.(jpg|jpeg|png)$/i);
             });
+
+            const jsonFilesPath = allFiles.filter(file => {
+                const pathParts = file.webkitRelativePath.split('/');
+                return !pathParts.includes('trash') &&
+                    file.name.match(/(har_annotations_).*\.(json)$/i);
+            });
+
 
             console.log('Number of files in front_RGB (excluding trash):', frontRGBFiles.length);
 
@@ -186,12 +209,35 @@
                     console.error('folder-name element not found');
                 }
 
+                // Load annotations from JSON file if it exists
+                console.log('Loading annotations from JSON file', jsonFilesPath);
+                if (jsonFilesPath.length == 1) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        console.log('e: ', e);
+                        try {
+                            const jsonData = JSON.parse(e.target.result);
+                            console.log('Loaded annotations:', jsonData);
+                            // Process the loaded annotations
+                            processLoadedAnnotations(jsonData);
+                        }
+                        catch (error) {
+                            console.log('No existing annotations file found:', error);
+                        }
+                    }
+                    reader.readAsText(jsonFilesPath[0]);
+                    console.log('Loaded annotations');
+                } else {
+                    console.log('annotations file may multipled or not existed:');
+                }
+
                 currentIndex = 0;
                 loadImage(currentIndex);
                 updateSliderMax(images.length - 1);
                 initializeAnnotation();
 
-                // Initialize both sliders to 0
+                // Initialize sliders to 0
+                document.getElementById('video').value = 0;
                 document.getElementById('start-slider').value = 0;
                 document.getElementById('end-slider').value = 0;
                 updateSelectionColor();
@@ -201,14 +247,57 @@
             }
         });
 
+        // function loadAnnotationsFromJSON(selectedFolderPath) {
+        //     const jsonFileName = 'har_annotations_.json';
+        //     const jsonFilePath = `${selectedFolderPath}/'front_RGB'/${jsonFileName}`;
+
+        //     fetch(jsonFilePath)
+        //         .then(response => {
+        //             if (!response.ok) {
+        //                 throw new Error('JSON file not found');
+        //             }
+        //             return response.json();
+        //         })
+        //         .then(data => {
+        //             console.log('Loaded annotations:', data);
+        //             // Process the loaded annotations
+        //             processLoadedAnnotations(data);
+        //         })
+        //         .catch(error => {
+        //             console.log('No existing annotations file found:', error);
+        //         });
+        // }
+
+        function processLoadedAnnotations(data) {
+            // Clear existing annotations
+            annotations = {};
+
+            // Process the loaded data and update the annotations object
+            Object.keys(data).forEach(imageName => {
+                const index = imageFiles.findIndex(file => file.name === imageName);
+                if (index !== -1) {
+                    annotations[index] = data[imageName].map(ann => ({
+                        personId: ann.personId,
+                        actionId: actions.indexOf(ann.action) + 1,
+                        action: ann.action
+                    }));
+                }
+            });
+
+            // Update the visualization and list
+            updateAnnotationVisualization();
+            updateAnnotationList();
+            changePerson();
+        }
+
         function loadImage(index) {
             if (index >= 0 && index < images.length) {
                 const img = document.getElementById('image');
                 img.src = images[index];
-                img.onload = function() {
+                img.onload = function () {
                     console.log('Image loaded successfully');
                 };
-                img.onerror = function() {
+                img.onerror = function () {
                     console.error('Error loading image');
                 };
                 currentIndex = index;
@@ -281,6 +370,7 @@
         }
 
         function initializeAnnotation() {
+            annotations = [];
             updateAnnotationVisualization();
             updateAnnotationList();
         }
@@ -343,16 +433,17 @@
 
             const json = JSON.stringify(exportData, null, 2);
             const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'har_annotations_.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            // const url = URL.createObjectURL(blob);
+            // const a = document.createElement('a');
+            // a.href = url;
+            // a.download = 'har_annotations_.json';
+            // document.body.appendChild(a);
+            // a.click();
+            // document.body.removeChild(a);
+            
         }
 
-        document.body.onkeyup = function(e) {
+        document.body.onkeyup = function (e) {
             if (e.keyCode == 32) {
                 togglePlayPause();
             } else if (e.keyCode >= 48 && e.keyCode <= 57) {
@@ -364,7 +455,7 @@
         }
 
         const videoSlider = document.getElementById('video-slider');
-        videoSlider.addEventListener('input', function() {
+        videoSlider.addEventListener('input', function () {
             loadImage(parseInt(this.value));
         });
 
@@ -372,12 +463,12 @@
         const endSlider = document.getElementById('end-slider');
         const annotationColor = document.getElementById('annotation-color');
 
-        startSlider.addEventListener('input', function() {
+        startSlider.addEventListener('input', function () {
             loadImage(parseInt(this.value));
             updateSelectionColor();
         });
 
-        endSlider.addEventListener('input', function() {
+        endSlider.addEventListener('input', function () {
             loadImage(parseInt(this.value));
             updateSelectionColor();
         });
@@ -391,12 +482,28 @@
             }
         }
 
-        document.getElementById('person-selector').addEventListener('change', function() {
+        document.getElementById('person-selector').addEventListener('change', changePerson);
+        function changePerson() {
             loadImage(0);
-            currentIndex = 0;
-            document.getElementById('start-slider').value = currentIndex;
-            document.getElementById('end-slider').value = currentIndex;
-        });
+            var temp = [];
+            var currentPersonId = document.getElementById('person-selector').value
+            console.log(annotations);
+            for (const [idx, records] of Object.entries(annotations)) {
+                for (const record of records) {
+                console.log(idx, record.personId, currentPersonId);
+                    if (record.personId == currentPersonId) {
+                        temp.push(idx);
+                    }
+                }
+            }
+            var tempMax = Math.max(0, Math.max(...temp));
+            console.log(tempMax, temp);
+            currentIndex = tempMax;
+            document.getElementById('video-slider').value = tempMax;
+            document.getElementById('start-slider').value = tempMax;
+            document.getElementById('end-slider').value = tempMax;
+        }
     </script>
 </body>
+
 </html>
