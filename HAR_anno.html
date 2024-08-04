@@ -166,6 +166,18 @@
         ];
         let folderName = '';
 
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+        
         document.getElementById('file-input').addEventListener('change', function (event) {
             console.log('File input changed');
             const allFiles = Array.from(event.target.files);
@@ -301,9 +313,11 @@
                     console.error('Error loading image');
                 };
                 currentIndex = index;
-                updateAnnotationVisualization();
-                updateAnnotationList();
-                document.getElementById('video-slider').value = currentIndex;
+                requestAnimationFrame(() => {
+                    updateAnnotationVisualization();
+                    updateAnnotationList();
+                    document.getElementById('video-slider').value = currentIndex;
+                });
             }
         }
 
@@ -377,25 +391,41 @@
 
         function updateAnnotationVisualization() {
             const visualizationDiv = document.getElementById('annotation-visualization');
+            const existingBoxes = visualizationDiv.querySelectorAll('.annotation-box');
+    
             visualizationDiv.innerHTML = '';
+            let boxIndex = 0;
 
             Object.keys(annotations).forEach(index => {
                 const annotation = annotations[index];
                 annotation.forEach(ann => {
                     const actionColor = actionColors[ann.actionId - 1];
-                    const annotationBox = document.createElement('div');
+                    let annotationBox;
+                    if (boxIndex < existingBoxes.length) {
+                        annotationBox = existingBoxes[boxIndex];
+                    } else {
+                        annotationBox = document.createElement('div');
+                        annotationBox.classList.add('annotation-box');
+                        visualizationDiv.appendChild(annotationBox);
+                    }
                     annotationBox.style.backgroundColor = actionColor;
                     annotationBox.style.left = `${(index / images.length) * 100}%`;
-                    annotationBox.classList.add('annotation-box');
-                    visualizationDiv.appendChild(annotationBox);
+                    boxIndex++;
                 });
             });
+
+            // Remove any excess boxes
+            while (boxIndex < existingBoxes.length) {
+                visualizationDiv.removeChild(existingBoxes[boxIndex]);
+                boxIndex++;
+            }
 
             const annotationBar = document.createElement('div');
             annotationBar.className = 'annotation-bar';
             visualizationDiv.appendChild(annotationBar);
 
-            const selectionBox = document.createElement('div');
+            // Update selection box
+            const selectionBox = document.getElementById('selection-box') || document.createElement('div');
             selectionBox.className = 'selection-box';
             selectionBox.id = 'selection-box';
             selectionBox.style.display = 'none';
@@ -463,14 +493,24 @@
         const endSlider = document.getElementById('end-slider');
         const annotationColor = document.getElementById('annotation-color');
 
+        const debouncedLoadImage = debounce(loadImage, 50);
+
+        videoSlider.addEventListener('input', function () {
+            requestAnimationFrame(() => debouncedLoadImage(parseInt(this.value)));
+        });
+
         startSlider.addEventListener('input', function () {
-            loadImage(parseInt(this.value));
-            updateSelectionColor();
+            requestAnimationFrame(() => {
+                debouncedLoadImage(parseInt(this.value));
+                updateSelectionColor();
+            });
         });
 
         endSlider.addEventListener('input', function () {
-            loadImage(parseInt(this.value));
-            updateSelectionColor();
+            requestAnimationFrame(() => {
+                debouncedLoadImage(parseInt(this.value));
+                updateSelectionColor();
+            });
         });
 
         function updateSelectionColor() {
